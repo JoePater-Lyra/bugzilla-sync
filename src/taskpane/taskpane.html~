@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Joe's add-in</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+    <script type="text/javascript" src="taskpane.js"></script>
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+  </head>
+
+  <body>
+    <h1>Bugzilla Sync</h1>
+    <div id="main">
+      <input type="button" onclick="update_all_tasks()" value="Run Sync"></input>
+      <div id="progress" style="display: none">
+	<br><br>
+	<p class="t">Progress: </p>
+	<p id="tasks_done" class="t"></p>
+	<p class="t">/</p>
+	<p id="total_tasks" class="t"></p>
+	<br>
+      </div>
+      <hr>
+      <p class="t">Make selected task track bug ID: </p>
+      <input type="text" id="bug_id"></input>
+      <input type="button" value="Go" onclick="track_selected_task()"></input>
+      <!-- <input type="button" onclick="print_selected_task()" value="pr_sel_task"></input> -->
+      <!-- <input type="button" onclick="print_all_tasks()" value="pr_all_tasks"></input> -->
+      <!-- <input type="button" onclick="update_all_tasks()" value="update_all_tasks"></input> -->
+      <!-- <br><br> -->
+      <!-- <input type="button" onclick="read_bugs([])" value="update_bugs"></input> -->
+      <!-- <br><br> -->
+      <!-- <input type="text" id="inp"></input> -->
+      <!-- <input type="button" onclick="set_succ_selected()" value="set_succ"></input> -->
+      <!-- <p id="json-text"></p> -->
+      <!-- <p id="buglist"></p> -->
+      <!-- <p id="status"></p> -->
+      <!-- <p id="errors"></p> -->
+    </div>
+  </body>
+
+</html>

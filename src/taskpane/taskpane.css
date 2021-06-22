@@ -1,0 +1,14 @@
+
+body {
+    font-family: sans-serif;
+    color: blue;
+}
+
+#buglist {
+    color: red;
+    font-size: 25px;
+}
+
+.t {
+    display: inline;
+}

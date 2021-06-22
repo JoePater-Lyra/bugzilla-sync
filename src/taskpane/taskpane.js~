@@ -1,0 +1,288 @@
+const bugzilla_api_key = "8Nxanhyh9xJEcpK92TgF4cRQHryrCIlyGE0IVCRy";
+const bugzilla_url = "https://bugzilla.lyra.local/";
+
+var doc;
+
+var bug_list = [];
+var bug_map = new Map(); // Map from bug id to bug object
+var task_map = new Map(); // Map from bug ID to task GUID
+
+var pf;
+var proj_to_bz_fields;
+
+function process_bugs(bugs) {
+    bug_list = bugs;
+    bug_map = new Map();
+    let str = "";
+    for (b in bugs) {
+	bug_map.set(bugs[b].id, bugs[b]);
+	str += bugs[b].summary + "\n";
+    }
+}
+
+function read_bugs(projects) {
+    let req_params = "";
+    for (p in projects) {
+	req_params += "project=" + projects[p] + "&";
+    }
+    req_params += "api_key=" + bugzilla_api_key;
+
+    const url = bugzilla_url + "rest/bug?" + req_params;
+    return $.get(url).then(function (data) {
+	process_bugs(data.bugs);
+    }, function(data) {
+	console.log("GET failed");
+    });
+}
+
+function read_bug_comments(bug_id) {
+    const url = bugzilla_url + "rest/bug/" + bug_id + "/comment?api_key=" + bugzilla_api_key;
+    return $.get(url).then(function (data) {
+	return data.bugs[bug_id.toString()].comments;
+    });
+}
+
+function get_task_field(guid, field_id) {
+    return new Promise(function (resolve, reject) {
+	doc.getTaskFieldAsync(guid, field_id, function (res) {
+	    if (res.status == Office.AsyncResultStatus.Succeeded) resolve(res.value.fieldValue);
+	    else reject(res.status);
+	});
+    });
+}
+
+// callback takes an array of field values as an argument
+// function get_task_fields(guid, field_arr, callback) {
+//     let values_array = {
+// 	len: field_arr.length,
+// 	done: 0,
+// 	arr: Array(field_arr.length)
+//     };
+
+//     for (let i=0; i < field_arr.length; i++) {
+// 	get_task_field(guid, field_arr[i]).then(function (data) {
+// 	    values_array.arr[i] = data;
+// 	    values_array.done++;
+// 	    if (values_array.done == values_array.len) {
+// 		console.log(values_array);
+// 		callback(values_array.arr);
+// 	    }
+// 	}, function (res) {
+// 	    console.log("Error getting task field");
+// 	});
+//     }
+// }
+
+// function get_task_fields_promise(guid, field_arr) {
+//     return new Promise(function (resolve, reject) {
+// 	get_task_fields(guid, field_arr, resolve);
+//     });
+// }
+
+function print_task(guid) {
+    return get_task_fields_promise(guid, [
+	pf.Name,
+	pf.ID
+    ]).then(function (arr) {
+	console.log("Name: " + arr[0] + "  ID: " + arr[1]);
+    });
+}
+
+function print_selected_task() {
+    doc.getSelectedTaskAsync(function (res) {
+	if (res.status == Office.AsyncResultStatus.Succeeded) {
+	    const guid = res.value;
+	    console.log("Task has GUID " + guid);
+	    get_task_fields(guid, [
+		pf.Name,
+		pf.ID
+	    ], function (arr) {
+		console.log("Name: " + arr[0] + "  ID: " + arr[1]);
+	    });
+	} else {
+	    console.log("Failed to get selected task");
+	}
+    });
+}
+
+function get_task(index) {
+    return new Promise(function (resolve, reject) {
+	doc.getTaskByIndexAsync(index, function (res) {
+	    if (res.status == Office.AsyncResultStatus.Succeeded) {
+		resolve(res.value);
+	    } else {
+		reject(res.status);
+	    }
+	});
+    });
+}
+
+var progress_count = 0;
+
+function start_progress(count) {
+    progress_count = 0;
+    document.getElementById("tasks_done").innerText = "0";
+    document.getElementById("total_tasks").innerText = count.toString();
+    document.getElementById("progress").style.display = "block";
+}
+
+function incr_progress() {
+    progress_count++;
+    console.log(progress_count);
+    document.getElementById("tasks_done").innerText = progress_count.toString();
+}
+
+// callback passed GUID of task and may return a promise
+function do_all_tasks(callback) {
+    doc.getMaxTaskIndexAsync(async function (res) {
+	if (res.status == Office.AsyncResultStatus.Succeeded) {
+	    max_index = res.value;
+	    for (let i=0; i <= max_index; i++) {
+		await get_task(i).then(callback, function () {
+		    console.log("Failed to get task " + i)
+		});
+	    }
+	} else {
+	    console.log("Failed to get max index");
+	}
+    });
+}
+/*
+function print_all_tasks() {
+    do_all_tasks(print_task);
+}
+*/
+function set_task_field(guid, field_id, value) {
+    return new Promise(function (resolve, reject) {
+	doc.setTaskFieldAsync(guid, field_id, value, function (res) {
+	    if (res.status == Office.AsyncResultStatus.Succeeded) {
+		resolve(res.value);
+	    } else {
+		reject(res.status);
+	    }
+	});
+    });
+}
+
+async function update_task_resources(guid, bug) {
+    let task_resource = await get_task_field(guid, pf.ResourceNames);
+    let resource_names = task_resource.split(",").filter((str) => str != "");
+    let bz_assignee = bug.assigned_to_detail.real_name;
+
+    if (!resource_names.includes(bz_assignee)) {
+	resource_names.push(bz_assignee);
+    }
+    console.log(resource_names);
+    task_resource = resource_names.join(",");
+    console.log(task_resource);
+    await set_task_field(guid, pf.ResourceNames, task_resource);
+}
+
+async function update_task_notes(guid, bug) {
+    let comments = await read_bug_comments(bug.id);
+    let str = ""
+    for (i in comments) {
+	str += comments[i].text + "\n--------------------------\n";
+    }
+    await set_task_field(guid, pf.Notes, str);
+}
+
+async function update_successors(guid, bug) {
+    let blocks = bug.blocks;
+    let id_list = (await get_task_field(guid, pf.Successors)).split(",").filter(
+	(str) => str != "");
+    
+    for (i in blocks) {
+	if (task_map.has(blocks[i])) {
+	    const new_guid = task_map.get(blocks[i]);
+	    const new_id = (await get_task_field(new_guid, pf.ID)).toString();
+	    const dependency_type = "FS";
+	    if (!id_list.includes(new_id))
+		id_list.push(new_id + dependency_type);
+	}
+    }
+    console.log(id_list);
+    const str = id_list.join(",");
+    await set_task_field(guid, pf.Successors, str);
+}
+
+async function update_task(guid) {
+    let bug_id = await get_task_field(guid, pf.Number5);
+
+    if (!bug_map.has(bug_id)) return;
+    bug = bug_map.get(bug_id);
+    
+    // Update deadline
+    if (bug.deadline != null) {
+	let date = new Date(bug.deadline);
+	let date_str = date.getDate() + "/" + (date.getMonth() + 1) + "/" + date.getFullYear()
+	await set_task_field(guid, pf.Deadline, date_str);
+    }
+
+    // Update attributes that are just copied
+    for (bz_attr in bz_to_proj_fields) {
+	let field_id = bz_to_proj_fields[bz_attr];
+	await set_task_field(guid, field_id, bug[bz_attr]);
+    }
+
+    // Update resources
+    await update_task_resources(guid, bug);
+
+    // Update Notes
+    await update_task_notes(guid, bug);
+
+    // Update Successors
+    await update_successors(guid, bug);
+}
+
+async function maybe_update_task(guid) {
+    let prevent_update = await get_task_field(guid, pf.Flag19);
+    if (prevent_update === false)
+    	await update_task(guid);
+    incr_progress();
+}
+
+async function fill_task_map() {
+    await do_all_tasks(async function (guid) {
+	let bug_id = await get_task_field(guid, pf.Number5);
+	if (bug_id != 0)
+	    task_map.set(bug_id, guid);
+	incr_progress();
+    });
+}		       
+
+async function update_all_tasks() {
+    doc.getMaxTaskIndexAsync(async function (res) {
+	start_progress(res.value * 2);
+	await read_bugs([]);
+	await fill_task_map();
+	await do_all_tasks(maybe_update_task);
+    });
+}
+
+async function track_selected_task() {
+    await read_bugs([]);
+    var bug_id = document.getElementById("bug_id").value;
+    doc.getSelectedTaskAsync(async function (res) {
+	if (res.status == Office.AsyncResultStatus.Succeeded) {
+	    var guid = res.value;
+	    await set_task_field(guid, pf.Number5, bug_id);
+	    await maybe_update_task(guid);
+	}
+    });
+}
+    
+Office.initialize = function (reason) {
+    $(document).ready(function () {
+	doc = Office.context.document
+	pf = Office.ProjectTaskFields;
+	bz_to_proj_fields = {
+	    status: pf.Text9,
+	    severity: pf.Text8,
+	    priority: pf.Text7,
+	    component: pf.Text6,
+	    cf_origin: pf.Text5,
+	    summary: pf.Name,
+	};
+    });
+}
